@@ -10,6 +10,7 @@ For 64 bits, and the general ideas of the changes are exposed:
 - Print pointers with %016x instead of %08x.
 - Do not really on default argtypes functions specifications used by ctypes.
 - Different registers.
-What works is the hooking of functions, and is tested in the project Survol.
+
+What works is the hooking of functions, and it is tested in the project [Survol](https://github.com/rchateauneu/survol).
 
 An excellent introduction to PyDbg can be found in the book [Gray Hat Python](https://www.nostarch.com/ghpython.htm).
