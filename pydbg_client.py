@@ -14,11 +14,14 @@
 '''
 
 import socket
-import cPickle
+try:
+	import cPickle
+except ImportError:
+	import pickle as cPickle
 
-from pydbg   import *
-from defines import *
-from pdx     import *
+from .pydbg   import *
+from .defines import *
+from .pdx     import *
 
 class pydbg_client:
     '''
@@ -124,7 +127,7 @@ class pydbg_client:
                         ret            = DBG_CONTINUE
     
                         if self.callbacks.has_key(exception_code):
-                            print "processing handler for %08x" % exception_code
+                            print("processing handler for %08x" % exception_code)
                             ret = self.callbacks[exception_code](self)
                     
                     ## user callback event.
@@ -135,7 +138,7 @@ class pydbg_client:
                 #### raised exception type.
                 elif received[0] == "exception":
                     (msg_type, exception_string) = received
-                    print exception_string
+                    print(exception_string)
                     raise pdx(exception_string)
                     
                 self.pickle_send(("**DONE**", ret))
