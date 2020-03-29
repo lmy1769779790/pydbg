@@ -22,6 +22,8 @@
 @organization: www.openrce.org
 '''
 
+from __future__ import print_function
+
 import os.path
 
 from .windows_h import *
@@ -40,15 +42,48 @@ import os
 
 import ctypes
 from ctypes import wintypes
-GetMappedFileNameA = ctypes.windll.psapi.GetMappedFileNameA
+
 LPSTR = POINTER(CHAR)
+
+GetMappedFileNameA = ctypes.windll.psapi.GetMappedFileNameA
 GetMappedFileNameA.argtypes = (wintypes.HANDLE, wintypes.LPVOID, LPSTR, wintypes.DWORD)
 GetMappedFileNameA.restype = wintypes.BOOL
 
 CreateFileMappingA = ctypes.windll.kernel32.CreateFileMappingA
-LPSTR = POINTER(CHAR)
 CreateFileMappingA.argtypes = (wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, LPSTR)
 CreateFileMappingA.restype = wintypes.HANDLE
+
+GetCurrentProcess = ctypes.windll.kernel32.GetCurrentProcess
+GetCurrentProcess.restype = wintypes.HANDLE
+
+OpenProcessToken = ctypes.windll.advapi32.OpenProcessToken
+OpenProcessToken.argtypes = (wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE))
+OpenProcessToken.restype = wintypes.BOOL
+
+IsWow64Process = ctypes.windll.kernel32.IsWow64Process
+IsWow64Process.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
+IsWow64Process.restype = wintypes.BOOL
+
+GetCurrentProcess = ctypes.windll.kernel32.GetCurrentProcess
+GetCurrentProcess.argtypes = []
+GetCurrentProcess.restype = wintypes.BOOL
+
+ReadProcessMemory = ctypes.windll.kernel32.ReadProcessMemory
+ReadProcessMemory.argtypes = [HANDLE, LPVOID, LPVOID, c_size_t, POINTER(c_size_t)]
+
+VirtualProtectEx = ctypes.windll.kernel32.VirtualProtectEx
+VirtualProtectEx.argtypes = [wintypes.HANDLE, LPVOID, c_size_t, wintypes.DWORD, POINTER(wintypes.DWORD)]
+VirtualProtectEx.restype = wintypes.BOOL
+
+Module32First = ctypes.windll.kernel32.Module32First
+Module32First.argtypes = (wintypes.HANDLE, POINTER(MODULEENTRY32))
+Module32First.restype = wintypes.BOOL
+
+OpenProcessToken = ctypes.windll.advapi32.OpenProcessToken
+OpenProcessToken.argtypes = (wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE))
+OpenProcessToken.restype = wintypes.BOOL
+
+####################################################################################################################
 
 class system_dll:
     '''
@@ -87,7 +122,6 @@ class system_dll:
 
         # calculate the file size of the
         file_size_hi = c_ulong(0)
-        file_size_lo = 0
         file_size_lo = kernel32.GetFileSize(handle, byref(file_size_hi))
         self.size    = (file_size_hi.value << 8) + file_size_lo
 
