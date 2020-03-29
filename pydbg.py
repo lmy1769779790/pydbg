@@ -60,17 +60,21 @@ from .memory_snapshot_context import *
 from .pdx                     import *
 from .system_dll              import *
 
-GetCurrentProcess = ctypes.windll.kernel32.GetCurrentProcess
-GetCurrentProcess.restype = wintypes.HANDLE
-OpenProcessToken = ctypes.windll.advapi32.OpenProcessToken
-OpenProcessToken.argtypes = (wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE))
-OpenProcessToken.restype = wintypes.BOOL
-
 if sys.version_info < (3,):
     big_integer_type = long
 else:
     big_integer_type = int
 
+def process_is_wow64(pid=None):
+    if pid:
+        process_handle = kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
+    else:
+        process_handle = GetCurrentProcess()
+
+    temp_is_wow64 = wintypes.BOOL()
+    a_bool = IsWow64Process(process_handle, byref(temp_is_wow64))
+
+    return True if temp_is_wow64 else False
 
 class pydbg:
     '''
@@ -578,8 +582,7 @@ class pydbg:
 
             return self.ret_self()
 
-        self._log("bp_set(0x%016x)" % address)
-
+        assert address
         # ensure a breakpoint doesn't already exist at the target address.
         if not address in self.breakpoints:
             try:
@@ -592,8 +595,8 @@ class pydbg:
 
                 # add the breakpoint to the internal list.
                 self.breakpoints[address] = breakpoint(address, original_byte, description, restore, handler)
-            except:
-                raise pdx("Failed setting breakpoint at %016x" % address)
+            except Exception as exc:
+                raise pdx("Failed setting breakpoint at %016x : %s" % (address, exc))
 
         return self.ret_self()
 
@@ -837,7 +840,7 @@ class pydbg:
 
             if mbi.Protect & PAGE_GUARD:
                 address = mbi.BaseAddress
-                print("PAGE GUARD on %08x" % mbi.BaseAddress)
+                print("PAGE GUARD on %016x" % mbi.BaseAddress)
 
                 while 1:
                     address += self.page_size
@@ -846,7 +849,7 @@ class pydbg:
                     if not tmp_mbi.Protect & PAGE_GUARD:
                         break
 
-                    print("PAGE GUARD on %08x" % address)
+                    print("PAGE GUARD on %016x" % address)
 
             cursor += mbi.RegionSize
 
@@ -1580,12 +1583,12 @@ class pydbg:
                     continue_status = DBG_CONTINUE
 
                 if self.first_breakpoint:
-                    self._log("first windows driven system breakpoint at %08x" % self.exception_address)
+                    self._log("first windows driven system breakpoint at %016x" % self.exception_address)
                     self.first_breakpoint = False
 
             # ignore all other breakpoints we didn't explicitly set.
             else:
-                self._log("breakpoint not ours %08x" % self.exception_address)
+                self._log("breakpoint not ours %016x" % self.exception_address)
                 continue_status = DBG_EXCEPTION_NOT_HANDLED
 
         # breakpoints we did set.
@@ -1667,12 +1670,12 @@ class pydbg:
 
         # grab the actual memory breakpoint object, for the hit breakpoint.
         if self.memory_breakpoint_hit:
-            self._log("direct hit on memory breakpoint at %08x" % self.memory_breakpoint_hit)
+            self._log("direct hit on memory breakpoint at %016x" % self.memory_breakpoint_hit)
 
         if self.write_violation:
-            self._log("write violation from %08x on %08x of mem bp" % (self.exception_address, self.violation_address))
+            self._log("write violation from %016x on %016x of mem bp" % (self.exception_address, self.violation_address))
         else:
-            self._log("read violation from %08x on %08x of mem bp" % (self.exception_address, self.violation_address))
+            self._log("read violation from %016x on %016x of mem bp" % (self.exception_address, self.violation_address))
 
         # if there is a specific handler registered for this bp, pass control to it.
         if self.memory_breakpoint_hit and self.memory_breakpoints[self.memory_breakpoint_hit].handler:
@@ -1846,14 +1849,14 @@ class pydbg:
                 dos_header   = self.read_process_memory(base_address, 0x40)
 
                 # check validity of DOS header.
-                if len(dos_header) != 0x40 or dos_header[:2] != "MZ":
+                if len(dos_header) != 0x40 or dos_header[:2] != b"MZ":
                     continue
 
                 e_lfanew   = struct.unpack("<I", dos_header[0x3c:0x40])[0]
                 pe_headers = self.read_process_memory(base_address + e_lfanew, 0xF8)
 
                 # check validity of PE headers.
-                if len(pe_headers) != 0xF8 or pe_headers[:2] != "PE":
+                if len(pe_headers) != 0xF8 or pe_headers[:4] != b"PE\0\0":
                     continue
 
                 export_directory_rva = struct.unpack("<I", pe_headers[0x78:0x7C])[0]
@@ -1873,13 +1876,13 @@ class pydbg:
                 while low <= high:
                     # python does not suffer from integer overflows:
                     #     http://googleresearch.blogspot.com/2006/06/extra-extra-read-all-about-it-nearly.html
-                    middle          = (low + high) / 2
+                    middle          = (low + high) // 2
                     current_address = base_address + struct.unpack("<I", name_table[middle*4:(middle+1)*4])[0]
 
                     # we use a crude approach here. read 256 bytes and cut on NULL char. not very beautiful, but reading
                     # 1 byte at a time is very slow.
                     name_buffer = self.read_process_memory(current_address, 256)
-                    name_buffer = name_buffer[:name_buffer.find("\0")]
+                    name_buffer = name_buffer[:name_buffer.find(b"\0")]
 
                     if name_buffer < func_name:
                         low = middle + 1
@@ -2029,9 +2032,6 @@ class pydbg:
 
         self._log("get_debug_privileges()")
 
-        OpenProcessToken = ctypes.windll.advapi32.OpenProcessToken
-        OpenProcessToken.argtypes = (wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE))
-        OpenProcessToken.restype = wintypes.BOOL
 
         if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, byref(h_token)):
             raise pdx("OpenProcessToken()", True)
@@ -2949,17 +2949,14 @@ class pydbg:
         _address = address
         _length  = length
 
-        try:
-            old_protect = self.virtual_protect(_address, _length, PAGE_EXECUTE_READWRITE)
-        except:
-            pass
+        old_protect = self.virtual_protect(_address, _length, PAGE_EXECUTE_READWRITE)
 
         while length:
             # TODO: Apparently there are default arguments.
             kernel32.ReadProcessMemory.argtypes = [HANDLE, LPVOID, LPVOID, c_size_t, POINTER(c_size_t)]
             if not kernel32.ReadProcessMemory(self.h_process, address, read_buf, length, byref(count)):
                 if not len(data):
-                    raise pdx("ReadProcessMemory(%08x, %d, read=%d)" % (address, length, count.value), True)
+                    raise pdx("ReadProcessMemory(%016x, %d, read=%d)" % (address, length, count.value), True)
                 else:
                     return data
 
@@ -3671,7 +3668,7 @@ class pydbg:
         old_protect = c_ulong(0)
 
         if not kernel32.VirtualProtectEx(self.h_process, base_address, size, protection, byref(old_protect)):
-            raise pdx("VirtualProtectEx(%08x, %d, %08x)" % (base_address, size, protection), True)
+            raise pdx("VirtualProtectEx(%016x, %d, %08x)" % (base_address, size, protection), True)
 
         return old_protect.value
 
@@ -3797,10 +3794,7 @@ class pydbg:
         # ensure we can write to the requested memory space.
         _address = address
         _length  = length
-        try:
-            old_protect = self.virtual_protect(_address, _length, PAGE_EXECUTE_READWRITE)
-        except:
-            pass
+        old_protect = self.virtual_protect(_address, _length, PAGE_EXECUTE_READWRITE)
 
         while length:
             c_data = c_char_p(data[count.value:])
@@ -3813,7 +3807,6 @@ class pydbg:
             address += count.value
 
         # restore the original page permissions on the target memory region.
-        try:
-            self.virtual_protect(_address, _length, old_protect)
-        except:
-            pass
+        self.virtual_protect(_address, _length, old_protect)
+
+
