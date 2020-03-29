@@ -22,7 +22,7 @@
 @organization: www.openrce.org
 '''
 
-from pydbg.defines import *
+from ..defines import *
 
 ########################################################################################################################
 class hook_container:
